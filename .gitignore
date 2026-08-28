@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Secrets / local state — NEVER commit these
+.env
+data/quiz_state.json
+
+# OCR / temp working files
+ocr_images/
+extracted_text/
+ocr_log.txt
+
+# Misc
+*.log
+err.txt
+nb_err.txt
+nb_out.txt
