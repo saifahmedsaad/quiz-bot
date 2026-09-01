@@ -5,15 +5,16 @@ Students answer inside the Telegram group; scores and a live leaderboard
 are shown. Fully free, runs forever, owned by you.
 
 Layout (modular, clean separation):
-  - quiz_data.py   : question bank loader (shared with Blooket exporter)
-  - game.py        : per-chat quiz session state machine
-  - handlers.py    : Telegram update handlers
-  - bot.py         : wires everything together + runs the app
+  - quiz_data.py : question bank loader (shared with Blooket exporter)
+  - game.py      : per-chat quiz session state machine
+  - handlers.py  : Telegram update handlers
+  - bot.py       : wires everything together + runs the app
 """
 from __future__ import annotations
 
 import logging
 import os
+
 from dotenv import load_dotenv
 from telegram.ext import Application
 
@@ -25,31 +26,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger("quiz_bot")
 
-async def _post_init(app: Application) -> None:
-    """Called by PTB after the Application is built but before the webhook
-    server starts. Use it to register the webhook with Telegram."""
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise SystemExit("❌ TELEGRAM_BOT_TOKEN غير موجود.")
 
-    # Use Railway's auto-detected static URL
-    public_url = (
-        os.getenv("RAILWAY_STATIC_URL")
+def _resolve_webhook_url(token: str) -> str:
+    """Build the full https webhook URL from Railway's env vars.
+
+    Railway's RAILWAY_STATIC_URL / RAILWAY_PUBLIC_DOMAIN vars are usually
+    a bare hostname WITHOUT the scheme (e.g. 'myapp-production.up.railway.app'),
+    but older/alternate vars can include the scheme already. Normalize
+    everything to a bare host first, then rebuild with https:// once.
+    """
+    raw = (
+        os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        or os.getenv("RAILWAY_STATIC_URL")
         or os.getenv("RAILWAY_BACKEND_URL")
-        or f"https://{(os.getenv('RAILWAY_APP_NAME') or 'quiz-bot')}.up.railway.app"
+        or f"{(os.getenv('RAILWAY_APP_NAME') or 'quiz-bot')}.up.railway.app"
     )
 
-    # Strip https:// if present (Railway env var may include it)
-    clean_url = public_url
-    if clean_url.startswith("https://"):
-        clean_url = clean_url[8:]
+    # Strip any scheme the env var might already include, then trim slashes.
+    host = raw.replace("https://", "").replace("http://", "").strip("/")
 
-    webhook_url = f"https://{clean_url}/{token}"
-    await app.bot.set_webhook(url=webhook_url)
-    logger.info(f"✅ Webhook set to: {webhook_url}")
+    if not host:
+        raise SystemExit("❌ مش قادر أحدد دومين Railway (تأكد من الـ env vars).")
+
+    return f"https://{host}/{token}"
+
 
 def main() -> None:
     load_dotenv()
+
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token or token == "your_bot_token_here":
         raise SystemExit(
@@ -57,10 +61,12 @@ def main() -> None:
             "و حط التوكن من @BotFather."
         )
 
+    webhook_url = _resolve_webhook_url(token)
+    logger.info(f"➡️  Webhook URL that will be registered: {webhook_url}")
+
     app = (
         Application.builder()
         .token(token)
-        .post_init(_post_init)  # ← key fix: set webhook here, NOT in a separate asyncio.run
         .build()
     )
 
@@ -70,8 +76,7 @@ def main() -> None:
             "❌ JobQueue غير متاح. ثبّت: pip install \"python-telegram-bot[job-queue]\""
         )
 
-    # Register handlers — these must be registered BEFORE post_init runs
-    # (PTB calls post_init during app initialization, after handlers are registered)
+    # Register handlers
     app.add_handler(handlers.start_handler())
     app.add_handler(handlers.sets_handler())
     app.add_handler(handlers.help_handler())
@@ -93,13 +98,25 @@ def main() -> None:
 
     # Run the webhook server — this is a SYNCHRONOUS blocking call that
     # creates its own event loop internally. Do NOT wrap it in asyncio.run().
+    #
+    # KEY FIX: pass webhook_url= explicitly. When it's omitted, PTB's own
+    # internal bootstrap tries to register the webhook itself using an
+    # incomplete/empty URL it builds internally, which is what produced:
+    #   "telegram.error.BadRequest: Bad webhook: an https url must be
+    #   provided for webhook"
+    # in a tight restart loop (and triggered Telegram flood control).
+    # Passing webhook_url here makes PTB call set_webhook correctly exactly
+    # once during its own bootstrap — no separate manual set_webhook call
+    # (e.g. via post_init) is needed or wanted alongside it.
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=token,
+        webhook_url=webhook_url,
         drop_pending_updates=True,
         allowed_updates=["message", "callback_query"],
     )
+
 
 if __name__ == "__main__":
     main()
