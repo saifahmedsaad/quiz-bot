@@ -25,7 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("quiz_bot")
 
-
 def main() -> None:
     load_dotenv()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -58,13 +57,35 @@ def main() -> None:
     handlers._ensure_weeks()  # make sure every weekly set has a state entry
 
     logger.info("Quiz bot started ✅")
-    # drop_pending_updates clears any stale updates; if another instance is
-    # briefly polling the same token we retry instead of crashing.
-    app.run_polling(
-        allowed_updates=["message", "callback_query"],
-        drop_pending_updates=True,
-    )
 
+    import asyncio
+
+    async def setup_webhook():
+        # Use the auto-assigned Railway Static URL, or derive from app name
+        public_url = (
+            os.getenv("RAILWAY_STATIC_URL")
+            or os.getenv("RAILWAY_BACKEND_URL")
+            or f"https://{(os.getenv('RAILWAY_APP_NAME') or 'quiz-bot')}.up.railway.app"
+        )
+
+        # Strip protocol to avoid duplication if RAILWAY_STATIC_URL includes https://
+        if public_url.startswith("https://"):
+            public_url = public_url[8:]
+
+        webhook_url = f"https://{public_url}/{token}"
+        await app.bot.set_webhook(url=webhook_url)
+        logger.info(f"✅ Webhook set to: {webhook_url}")
+
+        PORT = int(os.getenv("PORT", 8080))
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=token,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query"],
+        )
+
+    asyncio.run(setup_webhook())
 
 if __name__ == "__main__":
     main()
