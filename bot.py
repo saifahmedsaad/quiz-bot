@@ -60,8 +60,12 @@ def main() -> None:
     logger.info("Quiz bot started ✅")
     # drop_pending_updates clears any stale updates; if another instance is
     # briefly polling the same token we retry instead of crashing.
-    app.run_polling(
-        allowed_updates=["message", "callback_query"],
+    port = int(os.environ.get("PORT", 8080))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=token,
+        webhook_url=f"https://quiz-bot.up.railway.app/{token}",
         drop_pending_updates=True,
     )
 
