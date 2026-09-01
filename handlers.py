@@ -78,6 +78,11 @@ LETTERS = ["A", "B", "C", "D", "E", "F"]
 # How long a quiz stays open after it starts (seconds).
 QUIZ_OPEN_SECONDS = 30 * 60
 
+# Egypt timezone (UTC+3) — used so /schedule HH:MM shows the correct local time
+# when the server (Railway) is running UTC.
+import datetime as _dt
+EGYPT_TZ = _dt.timezone(_dt.timedelta(hours=3))
+
 # Arabic date helpers --------------------------------------------------------
 AR_DAYS = {
     "Saturday": "السبت", "Sunday": "الأحد", "Monday": "الإثنين",
@@ -103,7 +108,6 @@ def fmt_12h(dt) -> str:
 def fmt_date_ar(dt) -> str:
     return f"{dt.day} {AR_MONTHS.get(dt.strftime('%B'), dt.strftime('%B'))}"
 
-
 # ---------------------------------------------------------------------------
 # Persistent state
 # ---------------------------------------------------------------------------
@@ -115,7 +119,6 @@ def fmt_date_ar(dt) -> str:
 #                             "correct": int, "wrong": int, "taken": bool}},
 # }
 _state: Dict[str, dict] = {}
-
 
 def _load_state() -> None:
     global _state
@@ -130,7 +133,6 @@ def _load_state() -> None:
     for w in _state.values():
         w["active"] = False
 
-
 def _save_state() -> None:
     try:
         os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
@@ -138,7 +140,6 @@ def _save_state() -> None:
             json.dump(_state, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error("could not save quiz state: %s", e)
-
 
 def _week_state(week_id: str) -> dict:
     if week_id not in _state:
@@ -150,12 +151,10 @@ def _week_state(week_id: str) -> dict:
         }
     return _state[week_id]
 
-
 def _ensure_weeks() -> None:
     for s in load_sets():
         _week_state(s.id)
     _save_state()
-
 
 def _available_weeks() -> list:
     """Weeks the students can see: any week that has a scheduled open time
@@ -166,7 +165,6 @@ def _available_weeks() -> list:
         if w.get("open_at") or w.get("active"):
             out.append(s)
     return out
-
 
 def _week_open_info(week_id: str):
     """Return (open_at_epoch, status) for a week.
@@ -187,7 +185,6 @@ def _week_open_info(week_id: str):
     # hasn't opened it) -> show the locked message with the scheduled date
     return open_at, "locked"
 
-
 def _record_score(week_id: str, user_id: int, name: str, correct: int, wrong: int,
                   points: int, taken: bool) -> None:
     w = _week_state(week_id)
@@ -201,19 +198,16 @@ def _record_score(week_id: str, user_id: int, name: str, correct: int, wrong: in
     w["scores"][uid] = prev
     _save_state()
 
-
 # ---------------------------------------------------------------------------
 # Active quiz sessions (in-memory, per week)
 # ---------------------------------------------------------------------------
 SESSIONS: Dict[str, "game.QuizSession"] = {}  # week_id -> session
-
 
 def _session_for(week_id: str) -> Optional["game.QuizSession"]:
     s = SESSIONS.get(week_id)
     if s and not s.finished:
         return s
     return None
-
 
 # ---------------------------------------------------------------------------
 # Admin helper
@@ -227,10 +221,8 @@ def _is_admin(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) ->
     except Exception:
         return False
 
-
 def _sets() -> list:
     return load_sets()
-
 
 # ---------------------------------------------------------------------------
 # Keyboards
@@ -238,14 +230,12 @@ def _sets() -> list:
 def _week_buttons(weeks: list, prefix: str) -> list:
     return [InlineKeyboardButton(f"📅 {s.title}", callback_data=f"{prefix}{s.id}") for s in weeks]
 
-
 def _student_start_keyboard() -> InlineKeyboardMarkup:
     weeks = _available_weeks()
     if not weeks:
         return InlineKeyboardMarkup([[]])
     grid = [[b] for b in _week_buttons(weeks, "stwk:")]
     return InlineKeyboardMarkup(grid)
-
 
 def _teacher_start_keyboard() -> InlineKeyboardMarkup:
     grid = [
@@ -255,7 +245,6 @@ def _teacher_start_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(grid)
 
-
 def _week_panel_keyboard(week_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📖 اشوف الأسئلة والإجابات", callback_data=f"qview:{week_id}")],
@@ -263,7 +252,6 @@ def _week_panel_keyboard(week_id: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📅 حدد المعاد للطلاب", callback_data=f"schwk:{week_id}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="teacher_open")],
     ])
-
 
 def _student_week_keyboard(week_id: str) -> InlineKeyboardMarkup:
     open_at, status = _week_open_info(week_id)
@@ -274,7 +262,6 @@ def _student_week_keyboard(week_id: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📊 اشوف درجتي", callback_data=f"stscore:{week_id}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="stback")],
     ])
-
 
 def _keyboard(q: Question, extra: Optional[list] = None) -> InlineKeyboardMarkup:
     """One button per option (A/B/C/D icons) + a SEND confirm.
@@ -292,7 +279,6 @@ def _keyboard(q: Question, extra: Optional[list] = None) -> InlineKeyboardMarkup
         grid.extend(extra)
     return InlineKeyboardMarkup(grid)
 
-
 # ---------------------------------------------------------------------------
 # Locked / schedule message helpers
 # ---------------------------------------------------------------------------
@@ -308,11 +294,9 @@ def _lock_message(week_id: str) -> str:
         f"استنى لحد ما يفتح عشان تدخل تمتحن 💪"
     )
 
-
 def datetime_from_ts(ts: float):
-    import datetime
-    return datetime.datetime.fromtimestamp(ts)
-
+    """Convert epoch seconds to a timezone-aware Egypt-time datetime."""
+    return _dt.datetime.fromtimestamp(ts, tz=EGYPT_TZ)
 
 # ---------------------------------------------------------------------------
 # /start
@@ -349,7 +333,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
-
 # ---------------------------------------------------------------------------
 # /sets  (teacher quick menu)
 # ---------------------------------------------------------------------------
@@ -360,7 +343,6 @@ async def sets_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=_week_grid_keyboard("wkpanel:"),
     )
 
-
 def _week_grid_keyboard(prefix: str) -> InlineKeyboardMarkup:
     weeks = _sets()
     if not weeks:
@@ -368,12 +350,10 @@ def _week_grid_keyboard(prefix: str) -> InlineKeyboardMarkup:
     grid = [[b] for b in _week_buttons(weeks, prefix)]
     return InlineKeyboardMarkup(grid)
 
-
 # ---------------------------------------------------------------------------
 # /schedule  (teacher) -> day -> time -> week
 # ---------------------------------------------------------------------------
 async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    import datetime
     chat_id = update.effective_chat.id
     user = update.effective_user
     if not _is_admin(context, chat_id, user.id):
@@ -395,7 +375,7 @@ async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             if hh > 23 or mm > 59:
                 await update.message.reply_text("❌ ساعة أو دقيقة غير صحيحة.", parse_mode="Markdown")
                 return
-            now = datetime.datetime.now()
+            now_egypt = _dt.datetime.now(EGYPT_TZ)
             if date_str:
                 dm = re.match(r"^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{4}|\d{2}))?$", date_str)
                 if not dm:
@@ -403,21 +383,22 @@ async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         "❌ مفهمتش التاريخ. اكتب مثلاً: `/schedule 28/8 19:00`",
                         parse_mode="Markdown")
                     return
-                day, month, yr = int(dm.group(1)), int(dm.group(2)), now.year
+                day, month, yr = int(dm.group(1)), int(dm.group(2)), now_egypt.year
                 if dm.group(3):
                     yr = int(dm.group(3))
                     if yr < 100:
                         yr += 2000
                 try:
-                    then = datetime.datetime(yr, month, day, hh, mm, 0)
+                    then = _dt.datetime(yr, month, day, hh, mm, 0, tzinfo=EGYPT_TZ).astimezone(_dt.timezone.utc)
                 except ValueError:
                     await update.message.reply_text("❌ تاريخ غير صحيح.", parse_mode="Markdown")
                     return
             else:
-                then = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                if then <= now:
-                    then += datetime.timedelta(days=1)
-            if then <= now:
+                then_egypt = now_egypt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if then_egypt <= now_egypt:
+                    then_egypt += _dt.timedelta(days=1)
+                then = then_egypt.astimezone(_dt.timezone.utc)
+            if then <= _dt.datetime.now(_dt.timezone.utc):
                 await update.message.reply_text("❌ التاريخ ده عدّى.", parse_mode="Markdown")
                 return
             # Need a week too — pick the first available or ask.
@@ -440,13 +421,11 @@ async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # No args -> day picker
     await _show_day_picker(update, context)
 
-
 async def _show_day_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    import datetime
-    now = datetime.datetime.now()
+    now_egypt = _dt.datetime.now(EGYPT_TZ)
     buttons = []
     for d in range(0, 7):
-        day = now + datetime.timedelta(days=d)
+        day = now_egypt + _dt.timedelta(days=d)
         label = f"{AR_DAYS.get(day.strftime('%A'), day.strftime('%A'))} {day.day} {AR_MONTHS.get(day.strftime('%B'), day.strftime('%B'))}"
         buttons.append(InlineKeyboardButton(label, callback_data=f"schday:{day.year}-{day.month:02d}-{day.day:02d}"))
     grid = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
@@ -457,7 +436,6 @@ async def _show_day_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
 
-
 async def _show_time_picker(update: Update, context: ContextTypes.DEFAULT_TYPE, day_iso: str) -> None:
     hours = [15, 16, 17, 18, 19, 20, 21, 22]
     buttons = [InlineKeyboardButton(f"{h:02d}:00", callback_data=f"schtime:{day_iso}:{h:02d}:00") for h in hours]
@@ -466,11 +444,9 @@ async def _show_time_picker(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     kb = InlineKeyboardMarkup(grid)
     await update.callback_query.edit_message_text("🕐 *اختر ساعة الكويز:*", parse_mode="Markdown", reply_markup=kb)
 
-
 # Schedule draft state, keyed by the teacher's chat id (safe — no reliance on
 # arbitrary attributes on CallbackContext).
 SCHEDULE_DRAFT: Dict[int, dict] = {}
-
 
 async def _confirm_schedule(context: ContextTypes.DEFAULT_TYPE, week_id: str, then, chat_id: int) -> None:
     epoch = then.timestamp()
@@ -481,7 +457,9 @@ async def _confirm_schedule(context: ContextTypes.DEFAULT_TYPE, week_id: str, th
     _save_state()
     SCHEDULE_DRAFT.pop(chat_id, None)
 
-    dn = AR_DAYS.get(then.strftime("%A"), then.strftime("%A"))
+    # Display times in Egypt timezone for the teacher
+    then_egypt = then.astimezone(EGYPT_TZ)
+    dn = AR_DAYS.get(then_egypt.strftime("%A"), then_egypt.strftime("%A"))
     wait = epoch - time.time()
 
     # Tell the teacher
@@ -489,7 +467,7 @@ async def _confirm_schedule(context: ContextTypes.DEFAULT_TYPE, week_id: str, th
         chat_id=chat_id,
         text=(
             f"✅ *تم تحديد موعد الكويز* ('{get_set(week_id).title if get_set(week_id) else week_id}')\n"
-            f"📅 يوم *{dn} {fmt_date_ar(then)}* الساعة *{fmt_12h(then)}*\n"
+            f"📅 يوم *{dn} {fmt_date_ar(then_egypt)}* الساعة *{fmt_12h(then_egypt)}*\n"
             f"⏳ يفضل بعد {int(wait // 60)} دقيقة.\n"
             f"الطلاب هيلاقوه في /start لما يفتح."
         ),
@@ -503,7 +481,6 @@ async def _confirm_schedule(context: ContextTypes.DEFAULT_TYPE, week_id: str, th
         data={"week_id": week_id},
         name=f"open:{week_id}",
     )
-
 
 # ---------------------------------------------------------------------------
 # Open a scheduled quiz for students
@@ -527,7 +504,6 @@ async def _open_scheduled(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _post_question(context, week_id)
     _schedule_close(context, week_id)
 
-
 # ---------------------------------------------------------------------------
 # /startnow  (teacher) -> week picker -> opens in TEST MODE for the teacher
 # ---------------------------------------------------------------------------
@@ -545,7 +521,6 @@ async def startnow_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "▶️ *ابدأ فوري (اختبار)* — اختر الأسبوع:",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(grid))
-
 
 async def _open_test_mode(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_id: int) -> None:
     """Open a quiz in TEST MODE: the teacher chat itself receives the questions
@@ -581,7 +556,6 @@ async def _open_test_mode(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat
     )
     await _post_question(context, week_id)
     _schedule_close(context, week_id)
-
 
 # ---------------------------------------------------------------------------
 # Question posting
@@ -631,14 +605,11 @@ async def _post_question(context: ContextTypes.DEFAULT_TYPE, week_id: str) -> No
         name=f"reveal:{week_id}",
     )
 
-
 def _question_text(q: Question, idx: int, total: int) -> str:
     return f"❓ *سؤال {idx + 1} من {total}*\n\n{q.q}"
 
-
 def _options_block(q: Question) -> str:
     return "\n".join(f"{LETTERS[i]}. {opt}" for i, opt in enumerate(q.options))
-
 
 async def _reveal_and_next(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
@@ -674,7 +645,6 @@ async def _reveal_and_next(context: ContextTypes.DEFAULT_TYPE) -> None:
     session.next()
     await asyncio.sleep(1.2)
     await _post_question(context, week_id)
-
 
 # ---------------------------------------------------------------------------
 # Student enter quiz
@@ -712,6 +682,23 @@ async def _student_enter(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_
     if q is None:
         await context.bot.send_message(chat_id=chat_id, text="❌ الكويز انتهى.", parse_mode="Markdown")
         return
+
+    # --- NEW: warn students who joined late that earlier questions were skipped ---
+    total_questions = len(session.set.questions)
+    questions_skipped = session.index  # how many questions the session already passed
+    if questions_skipped > 0:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"⚠️ *لقيت الكويز شغال — فاتك {questions_skipped} أسئلة!*\n"
+                f"السؤال الحالي: *{session.index + 1} من {total_questions}*\n\n"
+                f"❓ *سؤال {session.index + 1} من {total_questions}*\n\n{q.q}"
+            ),
+            parse_mode="Markdown",
+            reply_markup=_keyboard(q),
+        )
+        return
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"{_question_text(q, session.index, len(session.set.questions))}\n\n"
@@ -720,7 +707,6 @@ async def _student_enter(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_
         reply_markup=_keyboard(q),
     )
     session.pending[chat_id] = {"pick": None, "msg_id": None}
-
 
 # ---------------------------------------------------------------------------
 # Student score
@@ -747,7 +733,6 @@ async def _student_score(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_
         parse_mode="Markdown",
     )
 
-
 # ---------------------------------------------------------------------------
 # Teacher views
 # ---------------------------------------------------------------------------
@@ -770,7 +755,6 @@ async def _teacher_qview(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_
     for chunk in _split(text):
         await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
 
-
 def _split(text: str, limit: int = 3900):
     if len(text) <= limit:
         return [text]
@@ -785,7 +769,6 @@ def _split(text: str, limit: int = 3900):
     if cur:
         parts.append(cur)
     return parts
-
 
 async def _teacher_scores(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat_id: int) -> None:
     w = _week_state(week_id)
@@ -802,7 +785,6 @@ async def _teacher_scores(context: ContextTypes.DEFAULT_TYPE, week_id: str, chat
     for i, (uid, rec) in enumerate(ranked, 1):
         lines.append(f"{i}. {rec['name']} — ⭐ {rec['score']} (✅{rec['correct']}/❌{rec['wrong']})")
     await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="Markdown")
-
 
 # ---------------------------------------------------------------------------
 # Answer handling (pick / send) — used by both test mode (teacher) and students
@@ -844,7 +826,6 @@ async def _handle_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, data:
         reply_markup=_keyboard(q, extra=extra),
     )
 
-
 def _week_for_chat(chat_id: int) -> Optional[str]:
     """Find the week whose active session this chat is participating in."""
     for wid, s in SESSIONS.items():
@@ -855,7 +836,6 @@ def _week_for_chat(chat_id: int) -> Optional[str]:
         if chat_id in s.pending or chat_id in getattr(s, "answered", set()) or chat_id in getattr(s, "waiting", set()):
             return wid
     return None
-
 
 async def _handle_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -907,7 +887,6 @@ async def _handle_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         parse_mode="Markdown",
     )
 
-
 # ---------------------------------------------------------------------------
 # Auto-close
 # ---------------------------------------------------------------------------
@@ -916,7 +895,6 @@ def _schedule_close(context: ContextTypes.DEFAULT_TYPE, week_id: str) -> None:
         j.schedule_removal()
     context.job_queue.run_once(_auto_close, QUIZ_OPEN_SECONDS,
                                data={"week_id": week_id}, name=f"close:{week_id}")
-
 
 async def _auto_close(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
@@ -927,7 +905,6 @@ async def _auto_close(context: ContextTypes.DEFAULT_TYPE) -> None:
     w = _week_state(week_id)
     w["active"] = False
     _save_state()
-
 
 async def _finish(context: ContextTypes.DEFAULT_TYPE, week_id: str) -> None:
     session = SESSIONS.get(week_id)
@@ -950,7 +927,6 @@ async def _finish(context: ContextTypes.DEFAULT_TYPE, week_id: str) -> None:
         )
     SESSIONS.pop(week_id, None)
 
-
 # ---------------------------------------------------------------------------
 # /help, /myscore, /myid
 # ---------------------------------------------------------------------------
@@ -965,7 +941,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
-
 async def myscore_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -979,14 +954,12 @@ async def myscore_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "❌ مفيش درجة مسجلة ليك لسه. لما تدخل كويز وترد، اكتب /myscore.",
         parse_mode="Markdown")
 
-
 async def myid_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     await update.message.reply_text(
         f"🆔 رقمك على تليجرام: `{user.id}`\nالاسم: {user.first_name}\n\n"
         "حط الرقم ده في ملف .env قدام ADMIN_IDS= عشان تبقى مدرّس البوت.",
         parse_mode="Markdown")
-
 
 # ---------------------------------------------------------------------------
 # /join (kept for compatibility; opens the week picker for the student)
@@ -1006,7 +979,6 @@ async def join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "📚 اختر الأسبوع:", reply_markup=_student_start_keyboard(),
         parse_mode="Markdown")
-
 
 # ---------------------------------------------------------------------------
 # Main callback router
@@ -1084,11 +1056,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if data.startswith("schtime:"):
         _, day_iso, clock = data.split(":", 2)
-        import datetime
         yr, mo, da = map(int, day_iso.split("-"))
         hh, mm = map(int, clock.split(":"))
-        then = datetime.datetime(yr, mo, da, hh, mm, 0)
-        if then <= datetime.datetime.now():
+        then = _dt.datetime(yr, mo, da, hh, mm, 0, tzinfo=EGYPT_TZ).astimezone(_dt.timezone.utc)
+        if then <= _dt.datetime.now(_dt.timezone.utc):
             await query.answer("❌ التاريخ ده عدّى", show_alert=True)
             return
         draft = SCHEDULE_DRAFT.get(chat_id, {})
@@ -1107,8 +1078,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if data.startswith("schwkarg:"):
         # schwkarg:week_id:epoch
         _, week_id, epoch = data.split(":", 2)
-        import datetime
-        then = datetime.datetime.fromtimestamp(int(epoch))
+        then = _dt.datetime.fromtimestamp(int(epoch), tz=_dt.timezone.utc)
         await _confirm_schedule(context, week_id, then, chat_id)
         return
 
@@ -1190,7 +1160,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_send(update, context)
         return
 
-
 # ---------------------------------------------------------------------------
 # Text fallback (student types A/B/C/D)
 # ---------------------------------------------------------------------------
@@ -1211,7 +1180,6 @@ async def message_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             session.pending[chat_id]["pick"] = mapping[text[0]]
             # fake a callback-like update is hard; instead directly score
             await _handle_send_text(update, context, week_id, mapping[text[0]])
-
 
 async def _handle_send_text(update: Update, context: ContextTypes.DEFAULT_TYPE, week_id: str, chosen: int) -> None:
     chat_id = update.effective_chat.id
@@ -1236,53 +1204,41 @@ async def _handle_send_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         f"*{_week_state(week_id)['scores'].get(str(uid), {}).get('score', 0)}* نقطة",
         parse_mode="Markdown")
 
-
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 def start_handler():
     return CommandHandler("start", start)
 
-
 def sets_handler():
     return CommandHandler("sets", sets_cmd)
-
 
 def help_handler():
     return CommandHandler("help", help_cmd)
 
-
 def myscore_handler():
     return CommandHandler("myscore", myscore_cmd)
-
 
 def myid_handler():
     return CommandHandler("myid", myid_cmd)
 
-
 def startnow_handler():
     return CommandHandler("startnow", startnow_cmd)
-
 
 def schedule_handler():
     return CommandHandler("schedule", schedule_cmd)
 
-
 def join_handler():
     return CommandHandler("join", join_cmd)
-
 
 def answer_handler():
     return CommandHandler("answer", join_cmd)
 
-
 def callback_handler_reg():
     return CallbackQueryHandler(callback_handler)
 
-
 def fallback_handler():
     return MessageHandler(filters.TEXT & ~filters.COMMAND, message_fallback)
-
 
 # Initialize state on import.
 _load_state()
