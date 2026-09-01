@@ -61,18 +61,19 @@ def main() -> None:
     import asyncio
 
     async def setup_webhook():
-        # Use the auto-assigned Railway Static URL, or derive from app name
+        # Use Railway's auto-detected static URL (env var set by Railway)
         public_url = (
             os.getenv("RAILWAY_STATIC_URL")
             or os.getenv("RAILWAY_BACKEND_URL")
             or f"https://{(os.getenv('RAILWAY_APP_NAME') or 'quiz-bot')}.up.railway.app"
         )
 
-        # Strip protocol to avoid duplication if RAILWAY_STATIC_URL includes https://
-        if public_url.startswith("https://"):
-            public_url = public_url[8:]
+        # Strip protocol to avoid duplication if env var includes https://
+        clean_url = public_url
+        if clean_url.startswith("https://"):
+            clean_url = clean_url[8:]
 
-        webhook_url = f"https://{public_url}/{token}"
+        webhook_url = f"https://{clean_url}/{token}"
         await app.bot.set_webhook(url=webhook_url)
         logger.info(f"✅ Webhook set to: {webhook_url}")
 
